@@ -1,0 +1,24 @@
+name: Welcome New Contributor
+
+on:
+  pull_request_target:
+    types: [opened]
+  issues:
+    types: [opened]
+
+jobs:
+  welcome:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/first-interaction@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          issue-message: |
+            👋 Thanks for opening your first issue on **Hybrid Recommender**!
+            Please make sure you've read our [CONTRIBUTING.md](CONTRIBUTING.md).
+            A mentor will respond within 24-48 hours. 🚀
+          pr-message: |
+            🎉 Thanks for submitting your first PR to **Hybrid Recommender**!
+            Please ensure your PR description is filled out completely.
+            A mentor will review it within 24-48 hours. 
+            Make sure you have the issue assigned to you before we can merge! ✅
