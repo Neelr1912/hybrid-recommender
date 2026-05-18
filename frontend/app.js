@@ -642,16 +642,31 @@ function bindEvents() {
         slider.addEventListener('change', handleWeightChange);
     });
 }
-
 // ── CSS spin animation ──────────────────────────────────────────────
 const spinStyle = document.createElement('style');
 spinStyle.textContent = `@keyframes spin { to { transform: rotate(360deg); } } .spin { animation: spin 1s linear infinite; }`;
 document.head.appendChild(spinStyle);
 
+// ── Back To Top ─────────────────────────────────────────────────────
+function initBackToTop() {
+    const backToTop = document.getElementById('backToTop');
+
+    if (!backToTop) return;
+
+    window.addEventListener('scroll', () => {
+        backToTop.style.display = window.scrollY > 300 ? 'block' : 'none';
+    });
+
+    backToTop.addEventListener('click', () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+}
+
 // ── Init ────────────────────────────────────────────────────────────
 async function init() {
     bindEvents();
     initTypeToSearch();
+    initBackToTop();
 
     // Initialize Supabase client from backend config (no hardcoded keys)
     await initSupabase();
@@ -662,20 +677,3 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
-
-// Back to Top Button - Issue #28
-const backToTop = document.getElementById('backToTop');
-
-if (backToTop) {
-    window.addEventListener('scroll', () => {
-        if (window.scrollY > 300) {
-            backToTop.style.display = 'block';
-        } else {
-            backToTop.style.display = 'none';
-        }
-    });
-
-    backToTop.addEventListener('click', () => {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
-}
