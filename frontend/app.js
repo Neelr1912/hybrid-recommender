@@ -37,10 +37,12 @@ const state = {
     isAuthSignUp: false,
     modelReady: false,
 
- filters: {
+filters: {
     category: '',
     rating: '',
     sentiment: '',
+    minPrice: 0,
+    maxPrice: 5000,
 },
 
 preferences: {
@@ -90,6 +92,10 @@ const els = {
     ratingFilter: $('rating-filter'),
     sentimentFilter: $('sentiment-filter'),
     clearFiltersBtn: $('clear-filters'),
+    minPriceSlider: $('min-price'),
+    maxPriceSlider: $('max-price'),
+    minPriceValue: $('min-price-value'),
+    maxPriceValue: $('max-price-value'),
 };
 
 function loadPreferences() {
@@ -166,11 +172,18 @@ function applyFilters(products) {
         const matchesSentiment =
             !state.filters.sentiment ||
             sentiment === state.filters.sentiment;
+        
+        const price = Number(p.price || 0);
+
+        const matchesPrice =
+        price >= state.filters.minPrice &&
+        price <= state.filters.maxPrice;
 
         return (
             matchesCategory &&
             matchesRating &&
-            matchesSentiment
+            matchesSentiment &&
+            matchesPrice
         );
     });
 }
@@ -529,6 +542,9 @@ function renderProducts(products, append) {
                 ${p.category ? `<span class="product-card__category">${p.category}</span>` : ''}
                 <h3 class="product-card__title">${p.title || 'Untitled'}</h3>
                 <p class="product-card__desc">${p.description || 'No description available.'}</p>
+                <div class="product-card__price">
+                ₹${p.price || 0}
+                </div>
                 <div class="product-card__footer">
                     <div class="product-card__rating">
                         <div class="star-rating">${renderStars(p.rating || 0)}</div>
@@ -716,6 +732,32 @@ function savePreferences() {
 }
 
 const debouncedSavePreferences = debounce(savePreferences, 500);
+function updatePriceLabels() {
+    els.minPriceValue.textContent = `₹${state.filters.minPrice}`;
+    els.maxPriceValue.textContent = `₹${state.filters.maxPrice}`;
+}
+
+function handlePriceChange() {
+
+    let minVal = parseInt(els.minPriceSlider.value);
+    let maxVal = parseInt(els.maxPriceSlider.value);
+
+    if (minVal > maxVal) {
+        [minVal, maxVal] = [maxVal, minVal];
+    }
+
+    state.filters.minPrice = minVal;
+    state.filters.maxPrice = maxVal;
+
+    els.minPriceSlider.value = minVal;
+    els.maxPriceSlider.value = maxVal;
+
+    updatePriceLabels();
+
+    renderProducts(state.allProducts, false);
+
+    debouncedSavePreferences();
+}
 
 function populateCategoryFilter(products) {
 
@@ -806,15 +848,27 @@ els.sentimentFilter.addEventListener('change', (e) => {
     renderProducts(state.allProducts, false);
 });
 
+els.minPriceSlider.addEventListener('input', handlePriceChange);
+
+els.maxPriceSlider.addEventListener('input', handlePriceChange);
+
 els.clearFiltersBtn.addEventListener('click', () => {
 
     state.filters.category = '';
     state.filters.rating = '';
     state.filters.sentiment = '';
 
+    state.filters.minPrice = 0;
+    state.filters.maxPrice = 5000;
+
     els.categoryFilter.value = '';
     els.ratingFilter.value = '';
     els.sentimentFilter.value = '';
+
+    els.minPriceSlider.value = 0;
+    els.maxPriceSlider.value = 5000;
+
+    updatePriceLabels();
 
     renderProducts(state.allProducts, false);
 });
@@ -830,6 +884,7 @@ async function init() {
     bindEvents();
     initTypeToSearch();
     loadPreferences();
+    updatePriceLabels();
     // Initialize Supabase client from backend config (no hardcoded keys)
     await initSupabase();
 

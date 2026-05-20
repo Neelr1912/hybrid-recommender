@@ -38,8 +38,26 @@ if uploaded_file:
     if len(item_list) > 100:
         item_list = item_list[:100]
     selected_item = st.selectbox("Select Item", item_list)
+    min_price, max_price = st.slider(
+    "Select Price Range",
+    min_value=0,
+    max_value=5000,
+    value=(0, 5000)
+)
+if st.button("Recommend"):
 
-    if st.button("Recommend"):
-        recs = hybrid_model.recommend(selected_item)
-        st.write("### Recommendations")
-        st.write(recs)
+    recs = hybrid_model.recommend(selected_item)
+
+    # Convert list to DataFrame
+    recs_df = pd.DataFrame(recs)
+    st.write(recs_df.columns)
+
+    # Apply price filtering
+    if 'price' in recs_df.columns:
+        recs_df = recs_df[
+            (recs_df['price'] >= min_price) &
+            (recs_df['price'] <= max_price)
+        ]
+
+    st.write("### Recommendations")
+    st.dataframe(recs_df)

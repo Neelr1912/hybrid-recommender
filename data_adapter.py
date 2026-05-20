@@ -87,6 +87,8 @@ def adapt_data(df):
     Returns: (adapted_df, meta_dict)
     """
     validate_dataframe(df)
+    # Remove duplicate columns
+    df = df.loc[:, ~df.columns.duplicated()]
     columns = df.columns
 
     title_col    = detect_column(columns, ['title', 'name', 'product_name', 'item_name'])
