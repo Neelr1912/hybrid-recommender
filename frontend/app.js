@@ -1598,29 +1598,6 @@ function setupScrollObserver() {
     state.scrollObserver.observe(els.scrollSentinel);
 }
 
-// ── Search ──────────────────────────────────────────────────────────
-async function handleSearch(query) {
-    if (!query || query.length < 1) {
-        els.typingIndicator.hidden = true;
-        closeSearchDropdown();
-        return;
-    }
-
-    clearTimeout(state.searchTimer);
-    els.typingIndicator.hidden = false;
-    state.searchTimer = setTimeout(async () => {
-        try {
-            const data = await API.get(`/api/search?q=${encodeURIComponent(query)}&limit=8&sort=${getSelectedSort()}`);
-            state.searchResults = data.results || [];
-            state.selectedSearchIdx = -1;
-            renderSearchDropdown(state.searchResults, query);
-            els.typingIndicator.hidden = true;
-        } catch {
-            closeSearchDropdown();
-            els.typingIndicator.hidden = true;
-        }
-    }, 300);
-}
 
 function renderSearchDropdown(results, query) {
     if (!results.length) {
