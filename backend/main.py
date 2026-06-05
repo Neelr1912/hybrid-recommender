@@ -1050,7 +1050,7 @@ def search_items(
             result = query_builder.limit(limit).offset(offset).execute()
             products = result.data or []
     
-        except Exception as e:
+    except Exception as e:
         logger.warning("Search fallback to mock products: %s", e)
         products = MOCK_PRODUCTS
 
