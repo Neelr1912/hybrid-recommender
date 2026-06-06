@@ -59,11 +59,11 @@ class ContentRecommender:
 
     def explain_similarity(self, source_title, candidate_title, top_n=5):
         """Return top TF-IDF terms shared by the source and candidate item."""
-        if source_title not in self._title_to_idx or candidate_title not in self._title_to_idx:
+        if source_title.lower() not in self._title_to_idx or candidate_title.lower() not in self._title_to_idx:
             return []
 
-        source_idx = self._title_to_idx[source_title]
-        candidate_idx = self._title_to_idx[candidate_title]
+        source_idx = self._title_to_idx[source_title.lower()]
+        candidate_idx = self._title_to_idx[candidate_title.lower()]
         contributions = self.matrix[source_idx].multiply(self.matrix[candidate_idx]).toarray().ravel()
         if not np.any(contributions):
             return []
