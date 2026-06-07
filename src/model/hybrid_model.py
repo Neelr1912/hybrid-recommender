@@ -414,9 +414,7 @@ class HybridRecommender:
                     'raw_gnn': 0.0
                 }
 
-        if not candidates:
-            return self._cold_start_fallback(source_title, top_n, target_catalog=target_catalog)
-
+        # (Removed early fallback return here so validate_recommendations can log)
         items = list(candidates.values())
 
         # 4. Normalize each component using configured normalizer
@@ -508,8 +506,6 @@ class HybridRecommender:
             results.append(result)
 
         results.sort(key=lambda x: x['hybrid_score'], reverse=True)
-        if not results:
-            return self.get_popular_fallback_items(top_n=top_n, exclude_title=source_title)
 
         # 7. Optional causal debiasing — applied after sorting so the debiaser
         #    sees the full candidate set for proper batch-level IPS normalization,
@@ -541,7 +537,7 @@ class HybridRecommender:
             results,
             fallback_fn=lambda top_n: self.get_popular_fallback_items(top_n=top_n, exclude_title=title),
             top_n=top_n,
-            default_fallback_items=self.item_df["title"].tolist() if self.item_df is not None else None,
+            default_fallback_items=[t for t in self.item_df["title"].tolist() if t != title] if (self.item_df is not None and "title" in self.item_df.columns) else None,
             context="hybrid"
         )
     
@@ -550,19 +546,27 @@ class HybridRecommender:
         Get recommendations for a specific user.
         If the user is new (or no collab model exists), fallback to popular items.
         """
-        if self.collab_model is None or user_id not in self.collab_model._user_to_idx:
+        mapped_user_id = user_id
+        if self.collab_model is not None:
+            if user_id not in self.collab_model._user_to_idx:
+                for key in self.collab_model._user_to_idx.keys():
+                    if str(key) == str(user_id):
+                        mapped_user_id = key
+                        break
+
+        if self.collab_model is None or mapped_user_id not in self.collab_model._user_to_idx:
             # Cold start fallback for new user
             recs = self._cold_start_fallback(title=None, top_n=top_n)
             return validate_recommendations(
                 recs,
                 fallback_fn=lambda top_n: self.get_popular_fallback_items(top_n=top_n),
                 top_n=top_n,
-                default_fallback_items=self.item_df["title"].tolist() if self.item_df is not None else None,
+                default_fallback_items=self.item_df["title"].tolist() if (self.item_df is not None and "title" in self.item_df.columns) else None,
                 context="hybrid"
             )
 
-        collab_recs = self.collab_model.predict_for_user(user_id, top_n=top_n * 3)
-        recent_titles = history_tracker.get_recent_titles(user_id)
+        collab_recs = self.collab_model.predict_for_user(mapped_user_id, top_n=top_n * 3)
+        recent_titles = history_tracker.get_recent_titles(mapped_user_id)
 
         collab_recs = [ 
             rec for rec in collab_recs
@@ -834,19 +838,38 @@ class HybridRecommender:
             except Exception:
                 global_avg = 3.0
 
-        # Sort by Bayesian rating
-        if 'rating' in df.columns and 'review_count' in df.columns:
-            df['_bayesian'] = df.apply(
-                lambda r: bayesian_rating(r['rating'], r.get('review_count', 0), global_avg), axis=1
-            )
-            df = df.sort_values(
-                ['_bayesian', 'review_count'],
-                ascending=[False, False],
-            )
+        # 1. Most popular items
+        if 'review_count' in df.columns:
+            df = df.sort_values('review_count', ascending=False)
+        # 2. Highest rated items
         elif 'rating' in df.columns:
             df = df.sort_values('rating', ascending=False)
-        elif 'review_count' in df.columns:
-            df = df.sort_values('review_count', ascending=False)
+        # 3. Trending items
+        else:
+            try:
+                from src.model.trending_model import TrendingRecommender
+                trending_model = TrendingRecommender(df=df)
+                trending_results = trending_model.get_trending_products(top_n=top_n)
+                if trending_results:
+                    return [
+                        {
+                            'title': item['title'],
+                            'content_score': 0.0,
+                            'collab_score': 0.0,
+                            'sentiment_score': 0.0,
+                            'hybrid_score': 0.0,
+                            'rating': float(item.get('avg_rating', 0.0)),
+                            'category': '',
+                            'description': '',
+                            'top_reviews': [],
+                            'fallback': True,
+                        }
+                        for item in trending_results
+                    ]
+            except Exception:
+                pass
+            # 4. Empty list
+            return []
 
         results = []
         for _, row in df.head(top_n).iterrows():
