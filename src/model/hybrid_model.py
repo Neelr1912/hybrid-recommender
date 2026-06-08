@@ -67,10 +67,8 @@ class HybridRecommender:
         self.kg_model = kg_model
         self.delta = delta
 
-        # Expose model kwargs explicitly as structural configuration dictionaries
-        # Legacy compatibility: no explicit model_kwargs parameter in signature,
-        # so initialize empty dict to avoid NameError.
-        self.model_kwargs = {}
+        # Preserve caller-provided model_kwargs; fall back to empty dict if None
+        self.model_kwargs = model_kwargs or {}
 
         # Apply exposed parameters if dynamic updates are supplied on runtime triggers
         if self.collab_model and self.model_kwargs:
