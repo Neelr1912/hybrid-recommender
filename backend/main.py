@@ -1366,9 +1366,10 @@ def search_items(
                 )
     
                 # Fallback: LIKE search
+                escaped_query = _escape_like_pattern(query.strip())
                 result = sb.table('products') \
                     .select('id, title, description, category, rating, avg_sentiment, review_count, reviews') \
-                    .ilike('title', f'%{query.strip()}%') \
+                    .ilike('title', f'%{escaped_query}%') \
                     .order('rating', desc=True) \
                     .limit(limit) \
                     .execute()
@@ -1376,7 +1377,7 @@ def search_items(
                 products = result.data or []
     
             # 2. Fuzzy fallback
-            if len(products) < 3:
+            if not products:
                 is_fuzzy_fallback = True
     
                 fuzzy_res = sb.rpc('fuzzy_search_products', {
@@ -1404,8 +1405,8 @@ def search_items(
         logger.warning("Search fallback to mock products: %s", e)
         products = MOCK_PRODUCTS
 
-        if query:
-            query_lower = query.lower()
+    if query:
+        query_lower = query.lower()
 
             products = [
                 p for p in products
@@ -1415,7 +1416,8 @@ def search_items(
             ]
 
         for p in products:
-            p['rank'] = 0.0
+            if 'rank' not in p or p['rank'] is None:
+                p['rank'] = 0.0
 
 
     # Format response
