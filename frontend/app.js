@@ -1,4 +1,4 @@
-let initBenchmarkingDashboard = () => {};
+import { initBenchmarkingDashboard } from './js/benchmarking.js';
 
 // ===== THEME TOGGLE =====
 const themeToggle = document.getElementById('theme-toggle');
@@ -6,6 +6,11 @@ const root = document.documentElement;
 
 function initThemeToggle() {
   if (!themeToggle) return;
+
+  // Ensure theme toggle button is focusable as a keyboard-accessible control.
+  themeToggle.setAttribute('role', 'button');
+  themeToggle.setAttribute('tabindex', '0');
+
 
   const savedTheme = localStorage.getItem('theme') || 'dark';
 
@@ -118,12 +123,6 @@ const state = {
     isAuthSignUp: false,
     modelReady: false,
     scrollObserver: null,
-    allProducts: [],
-    searchResults: [],
-    activeChips: new Set(['all']),
-    heatmapSelected: [],
-    filters: { category: '', rating: '', sentiment: '' },
-    recommendationSocket: null,
 };
 
 // ── DOM Elements ────────────────────────────────────────────────────
@@ -239,7 +238,7 @@ function toast(message, type = 'info') {
     setTimeout(() => {
         el.style.opacity = '0';
         el.style.transform = 'translateX(100%)';
-        el.style.transition = '${CONFIG.TOAST_EXIT_MS}ms ease';
+        el.style.transition = `${CONFIG.TOAST_EXIT_MS}ms ease`;
         setTimeout(() => el.remove(), CONFIG.TOAST_EXIT_MS);
     }, CONFIG.TOAST_DURATION_MS);
 }
@@ -510,24 +509,44 @@ async function handleAuth(e) {
     const email = els.authEmail.value.trim();
     const password = els.authPassword.value;
 
+    // 1. Fetch the tracking token from browser storage
+    const guestToken = localStorage.getItem('guest_session_token') || null;
+
     try {
-        let result;
         if (state.isAuthSignUp) {
-            result = await sbClient.auth.signUp({
-                email,
-                password,
-                options: { data: { display_name: email.split('@')[0] } },
-            });
+            // --- SIGN UP LOGIC (Supabase Auth Client-side Signup) ---
+            if (!sbClient) throw new Error("Authentication infrastructure unavailable.");
+            
+            const { data, error } = await sbClient.auth.signUp({ email, password });
+            if (error) throw error;
+
+            const newUserId = data?.user?.id;
+
+            // 2. Map guest interactions directly to the new permanent profile ID
+            if (guestToken && newUserId) {
+                await sbClient
+                    .from('interactions')
+                    .update({ user_id: newUserId })
+                    .eq('guest_token', guestToken);
+                
+                // 3. Clear tracking states once migrated
+                localStorage.removeItem('guest_session_token');
+            }
+
+            toast('Signup successful! Your browsing history has been saved.', 'success');
         } else {
-            result = await sbClient.auth.signInWithPassword({ email, password });
+            // --- LOGIN LOGIC ---
+            if (!sbClient) throw new Error("Authentication infrastructure unavailable.");
+            const { error } = await sbClient.auth.signInWithPassword({ email, password });
+            if (error) throw error;
+            toast('Welcome back!', 'success');
         }
 
-        if (result.error) throw result.error;
-
-        setUser(result.data.user);
         els.authModal.hidden = true;
-        toast(state.isAuthSignUp ? 'Account created!' : 'Signed in!', 'success');
+        location.reload();
+
     } catch (err) {
+        console.error('Authentication process failed:', err.message);
         els.authError.textContent = err.message;
         els.authError.hidden = false;
     } finally {
@@ -535,6 +554,7 @@ async function handleAuth(e) {
         els.authSubmit.textContent = state.isAuthSignUp ? 'Sign Up' : 'Sign In';
     }
 }
+
 
 function toggleAuthMode() {
     state.isAuthSignUp = !state.isAuthSignUp;
@@ -610,7 +630,8 @@ function renderSearchDropdown(results, query) {
                     ${r.category ? `· <span class="search-result__category">${r.category}</span>` : ''}
                 </div>
             </div>
-        `)
+        `;
+        })
         .join('');
 
     els.searchDropdown.classList.add('active');
@@ -1270,32 +1291,6 @@ async function loadRecommendationsOverHttp(title) {
     renderRecommendations(data);
 }
 
-// ── Recommendation Skeleton Loading ────────────────────────────────
-function renderRecSkeletons(count = 6) {
-  const strip = els.recsStrip;
-  strip.innerHTML = '';
-  strip.classList.add('skeleton-loading');
-  for (let i = 0; i < count; i++) {
-    const card = document.createElement('div');
-    card.className = 'rec-card skeleton';
-    card.innerHTML = `
-      <div class="skeleton rec-skel-image"></div>
-      <div class="rec-skel-content">
-        <div class="skeleton rec-skel-line rec-skel-title"></div>
-        <div class="skeleton rec-skel-line rec-skel-subtitle"></div>
-        <div class="skeleton rec-skel-line rec-skel-rating"></div>
-      </div>
-    `;
-    strip.appendChild(card);
-  }
-}
-
-function clearRecSkeletons() {
-  const strip = els.recsStrip;
-  strip.classList.remove('skeleton-loading');
-  strip.querySelectorAll('.rec-card.skeleton').forEach(el => el.remove());
-}
-
 async function loadRecommendations(title) {
     if (!state.modelReady) {
         toast('Build models first to get recommendations', 'info');
@@ -1311,19 +1306,37 @@ async function loadRecommendations(title) {
 )
 .hidden=true;
 
-    renderRecSkeletons(8);
-    els.recsStrip.hidden = false;
+els.recsStrip.innerHTML=`
+<div class="recommendation-loading">
+
+<div class="loading-card"></div>
+
+<div class="loading-card"></div>
+
+<div class="loading-card"></div>
+
+</div>
+`;
+    els.recsStrip.hidden = true;
+    els.recsStrip.innerHTML = '';
 
     try {
         const data = await API.get(`/api/recommend?title=${encodeURIComponent(title)}&top_n=12`);
         const recs = data.results || data.recommendations || [];
 
-        clearRecSkeletons();
         els.recsLoader.hidden = true;
+        els.recsStrip.hidden = false;
 
-        renderRecommendations(data);
+        if (!recs.length) {
+    els.recsStrip.innerHTML = `
+        <div class="empty-recommendations">
+            <span class="empty-icon" aria-hidden="true">🔍</span>
+            <p>No recommendations found. Try a different product!</p>
+        </div>
+    `;
+    return;
+}
     } catch {
-        clearRecSkeletons();
         try {
             await loadRecommendationsOverHttp(title);
         } catch {
@@ -1345,9 +1358,7 @@ async function handleUpload(file) {
         // We only inject the CSRF header manually.
         const res = await fetch('/api/upload', {
             method: 'POST',
-            headers: { ..._csrfHeaders(),
-
-             },
+            headers: { ..._csrfHeaders() },
             body: form,
         });
         if (!res.ok) throw new Error('Upload failed');
@@ -1508,12 +1519,49 @@ function bindEvents() {
         }
     });
 
-    els.authForm.addEventListener('submit', handleAuth);
-    els.authToggleBtn.addEventListener('click', toggleAuthMode);
-    els.modalClose.addEventListener('click', () => { els.authModal.hidden = true; });
-    els.authModal.addEventListener('click', (e) => {
-        if (e.target === els.authModal) els.authModal.hidden = true;
-    });
+    async function handleAuth(e) {
+    e.preventDefault();
+    const email = els.authEmail.value;
+    const password = els.authPassword.value;
+    
+    // 1. Get the guest token from the browser storage
+    const guestToken = localStorage.getItem('guest_session_token') || null;
+
+    if (state.isAuthSignUp) {
+        // --- SIGN UP LOGIC ---
+        try {
+            const response = await fetch('/api/register', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ..._csrfHeaders()
+                },
+                body: JSON.stringify({
+                    email: email,
+                    password: password,
+                    guest_token: guestToken // <-- Pass token to backend
+                })
+            });
+
+            if (response.ok) {
+                // Remove the local token since it is now synced to your profile
+                localStorage.removeItem('guest_session_token');
+                toast('Signup successful! Your guest history has been synced.', 'success');
+                els.authModal.hidden = true;
+                location.reload(); 
+            } else {
+                const errData = await response.json();
+                if (els.authError) els.authError.textContent = errData.detail || 'Signup failed';
+            }
+        } catch (err) {
+            console.error('Signup error:', err);
+        }
+    } else {
+        // --- LOGIN LOGIC ---
+        // (Your existing login code goes here unchanged)
+    }
+}
+
 
     // Upload
     els.uploadBtn.addEventListener('click', () => els.fileInput.click());
@@ -1658,29 +1706,6 @@ function setupScrollObserver() {
     state.scrollObserver.observe(els.scrollSentinel);
 }
 
-// ── Search ──────────────────────────────────────────────────────────
-async function handleSearch(query) {
-    if (!query || query.length < 1) {
-        els.typingIndicator.hidden = true;
-        closeSearchDropdown();
-        return;
-    }
-
-    clearTimeout(state.searchTimer);
-    els.typingIndicator.hidden = false;
-    state.searchTimer = setTimeout(async () => {
-        try {
-            const data = await API.get(`/api/search?q=${encodeURIComponent(query)}&limit=8&sort=${getSelectedSort()}`);
-            state.searchResults = data.results || [];
-            state.selectedSearchIdx = -1;
-            renderSearchDropdown(state.searchResults, query);
-            els.typingIndicator.hidden = true;
-        } catch {
-            closeSearchDropdown();
-            els.typingIndicator.hidden = true;
-        }
-    }, 300);
-}
 
 function renderSearchDropdown(results, query) {
     if (!results.length) {
@@ -1743,7 +1768,9 @@ function closeSearchDropdown() {
 }
 
 function handleSearchKeydown(e) {
-    const results = state.searchResults;
+    // Use autocompleteResults (single source of truth for dropdown)
+    const results = state.autocompleteResults || [];
+
     if (!results.length || !els.searchDropdown.classList.contains('active')) return;
 
     if (e.key === 'ArrowDown') {
@@ -1752,11 +1779,11 @@ function handleSearchKeydown(e) {
         renderSearchDropdown(results, els.searchInput.value);
     } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        state.selectedSearchIdx = Math.max(state.selectedSearchIdx - 1, -1);
+        state.selectedSearchIdx = Math.max(state.selectedSearchIdx - 1, 0);
         renderSearchDropdown(results, els.searchInput.value);
     } else if (e.key === 'Enter' && state.selectedSearchIdx >= 0) {
         e.preventDefault();
-        selectSearchResult(results[state.selectedSearchIdx].title);
+        selectSearchResult(results[state.selectedSearchIdx]);
     } else if (e.key === 'Escape') {
         closeSearchDropdown();
     }
@@ -1968,9 +1995,6 @@ const spinStyle = document.createElement('style');
 spinStyle.textContent = `@keyframes spin { to { transform: rotate(360deg); } } .spin { animation: spin 1s linear infinite; }`;
 document.head.appendChild(spinStyle);
 
-function initDebugMode() { /* no-op stub */ }
-function loadSavedWeights() { /* no-op stub */ }
-
 // ── Init ────────────────────────────────────────────────────────────
 async function init() {
     bindEvents();
@@ -1990,13 +2014,7 @@ async function init() {
     checkStatus().catch((e) => console.warn('Status error:', e));
 
     // Benchmarking dashboard
-    try {
-        const mod = await import('./js/benchmarking.js');
-        initBenchmarkingDashboard = mod.initBenchmarkingDashboard || initBenchmarkingDashboard;
-        initBenchmarkingDashboard();
-    } catch (e) {
-        console.warn('Benchmarking module load failed:', e.message);
-    }
+    initBenchmarkingDashboard();
 }
 
 async function loadCategories() {
@@ -2080,8 +2098,51 @@ document.querySelectorAll(".product-card").forEach(card => {
 
 document.addEventListener('DOMContentLoaded', init);
 
+// ── FIX: state filters + chips compatibility ────────────────
+// Some UI paths reference state.activeChips but the base state was missing it.
+// Ensure it exists and is initialized.
+if (!state.activeChips) {
+    state.activeChips = new Set(['all']);
+}
+if (!state.filters) {
+    state.filters = { category: '', rating: '', sentiment: '' };
+}
+
+// Utility: reset search box + filters and reload results.
+function resetAllFiltersAndSearch() {
+    if (els.searchInput) els.searchInput.value = '';
+    state.filters.category = '';
+    state.filters.rating = '';
+    state.filters.sentiment = '';
+
+    if (els.categoryFilter) els.categoryFilter.value = '';
+    if (els.ratingFilter) els.ratingFilter.value = '';
+    if (els.sentimentFilter) els.sentimentFilter.value = '';
+
+    if (state.activeChips) {
+        state.activeChips = new Set(['all']);
+        const chipsContainer = document.getElementById('filter-chips');
+        if (chipsContainer) {
+            chipsContainer.querySelectorAll('.chip').forEach((c) => {
+                if (c.dataset.filter === 'all') c.classList.add('active');
+                else c.classList.remove('active');
+            });
+        }
+    }
+
+    if (els.productGrid) {
+        // Reload the non-search product feed.
+        els.productsTitle.textContent = 'All Products';
+    }
+
+    // Prefer backend status-driven load if available.
+    checkStatus().catch(() => loadProducts(false));
+    closeSearchDropdown();
+}
+
 // ── Language Toggle ─────────────────────────────────────────────────
 let currentLang = 'EN';
+
 
 function toggleLanguage() {
     currentLang = currentLang === 'EN' ? 'HI' : 'EN';
