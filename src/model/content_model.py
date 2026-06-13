@@ -105,7 +105,7 @@ class ContentRecommender:
             
             results.append({
                 "title": t,
-                "content_score": float(scores[i])
+                "content_score": float(score)
             })
             
             if len(results) >= top_n:
