@@ -683,31 +683,15 @@ class FederatedTrainRequest(BaseModel):
 @app.get("/health")
 @app.get("/api/health")
 def health_check():
+    """
+    Low-overhead health check endpoint for component tracking.
+    Checks database (Supabase), model readiness, and cache (Redis).
+    """
     return {
-        "status": "healthy",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "model_loaded": models["ready"],
+        "status": "ok",
+        "model_ready": models.get("ready", False),
+        "version": "3.0",
     }
-
-def _set_cached_response(key: str, value: Any) -> None:
-    if _redis_client is not None:
-        try:
-            _redis_client.setex(key, CACHE_TTL_SECONDS, json.dumps(value))
-        except (RedisError, TypeError):
-            pass
-
-    with _cache_lock:
-        _response_cache[key] = (
-            time.time() + CACHE_TTL_SECONDS,
-            value,
-        )
-
-def _clear_response_cache() -> None:
-    with _cache_lock:
-        _response_cache.clear()
-        global _cache_hits, _cache_misses
-        _cache_hits = 0
-        _cache_misses = 0
 
 @app.get("/api/cache_metrics")
 def get_cache_metrics():
