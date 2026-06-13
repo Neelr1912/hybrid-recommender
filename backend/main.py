@@ -637,6 +637,18 @@ class FeedbackCreate(BaseModel):
     feedback: str = Field(..., min_length=1, max_length=2000)
     thumbs: str = Field(..., pattern=r"^(up|down)$")
 
+
+class InteractionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str = Field(..., min_length=1, max_length=128)
+    item_id: int = Field(..., gt=0)
+    interaction_type: str = Field(
+        ...,
+        pattern=r"^(view|click|search)$"
+    )
+
+
 class RealtimeRecommendationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     item_title: str
