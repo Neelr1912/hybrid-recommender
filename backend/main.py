@@ -194,6 +194,8 @@ _request_counter = 0
 _cache_lock = Lock()
 
 # ── Redis client ──────────────────────────────────────────────────────
+_redis_client = None
+
 _redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 try:
     _redis_client = Redis.from_url(_redis_url, decode_responses=True, socket_connect_timeout=2)
@@ -682,6 +684,38 @@ class FederatedTrainRequest(BaseModel):
     lr: float = 0.05
     reg: float = 0.05
 
+
+# ── Health ────────────────────────────────────────────────────────────
+@app.get("/health")
+@app.get("/api/health")
+def health_check():
+    """
+    Low-overhead health check endpoint for component tracking.
+    Checks database (Supabase), model readiness, and cache (Redis).
+    """
+    from src.data.db import get_supabase
+
+    redis_ok = False
+    if _redis_client is not None:
+        try:
+            _redis_client.ping()
+            redis_ok = True
+        except Exception:
+            pass
+
+    db_ok = False
+    try:
+        get_supabase()
+        db_ok = True
+    except Exception:
+        pass
+
+    return {
+        "status": "healthy" if db_ok else "degraded",
+        "database": db_ok,
+        "redis": redis_ok,
+        "models_ready": models.get("ready", False),
+    }
 
 def _set_cached_response(key: str, value: Any) -> None:
     if _redis_client is not None:
